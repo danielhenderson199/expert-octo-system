@@ -28,14 +28,17 @@ jobs:
         Invoke-WebRequest -Uri $url -OutFile $installer
         Start-Process -FilePath $installer -ArgumentList "/quiet" -Wait
 
-    - name: Start Tailscale and show login URL
+    - name: Locate and run tailscale up (auth URL)
+      shell: pwsh
       run: |
-        $tailscale = (Get-Command tailscale.exe -ErrorAction SilentlyContinue)?.Source
+        $tailscale = Get-ChildItem -Path C:\ -Filter tailscale.exe -Recurse -ErrorAction SilentlyContinue -Force -File | Select-Object -First 1
+
         if (-not $tailscale) {
-          $tailscale = "C:\Program Files\Tailscale IPN\tailscale.exe"
+          Write-Error "❌ tailscale.exe not found after install."
+          exit 1
         }
 
-        & $tailscale up
+        & "$($tailscale.FullName)" up
 
     - name: Keep runner alive for 6 hours
       run: |
