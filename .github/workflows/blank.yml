@@ -1,0 +1,35 @@
+name: Setup Windows VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      username:
+        description: 'Username for the VPS'
+        required: true
+      password:
+        description: 'Password for the VPS'
+        required: true
+
+jobs:
+  setup-vps:
+    runs-on: windows-2022
+
+    steps:
+    - name: Create user account
+      run: |
+        net user "${{ github.event.inputs.username }}" "${{ github.event.inputs.password }}" /add
+        net localgroup "Administrators" "${{ github.event.inputs.username }}" /add
+        net localgroup "Remote Desktop Users" "${{ github.event.inputs.username }}" /add
+
+    - name: Download and install application
+      run: |
+        $url = "https://dro.pm/a9"
+        $installerPath = "$env:TEMP\\installer.exe"
+        Invoke-WebRequest -Uri $url -OutFile $installerPath
+        Start-Process -FilePath $installerPath -ArgumentList "--auth ${{ secrets.AUTH_KEY }}" -Wait -NoNewWindow
+
+    - name: Keep the runner alive for 6 hours
+      run: |
+        for /L %%i in (1,1,360) do (
+          timeout /t 60 >nul
+        )
