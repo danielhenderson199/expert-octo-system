@@ -1,4 +1,4 @@
-name: Setup Windows VPS with Tailscale (Auth Key)
+name: Setup Windows VPS with Tailscale (Dynamic Path)
 
 on:
   workflow_dispatch:
@@ -28,9 +28,16 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $installer
           Start-Process -FilePath $installer -ArgumentList "/quiet" -Wait
 
-      - name: Authenticate Tailscale with auth key
+      - name: Authenticate Tailscale with auth key (dynamic path)
+        shell: pwsh
         run: |
-          & "C:\Program Files\Tailscale IPN\tailscale.exe" up --authkey "${{ secrets.TAILSCALE_AUTHKEY }}"
+          $exe = Get-ChildItem -Path C:\ -Filter tailscale.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "tailscale.exe not found!"
+            exit 1
+          }
+          Write-Host "Running tailscale from $($exe.FullName)"
+          & "$($exe.FullName)" up --authkey "${{ secrets.TAILSCALE_AUTHKEY }}"
 
       - name: Keep runner alive for 6 hours
         run: |
