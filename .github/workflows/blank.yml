@@ -1,4 +1,4 @@
-name: Setup Windows VPS
+name: Setup Windows VPS with Tailscale
 
 on:
   workflow_dispatch:
@@ -21,14 +21,18 @@ jobs:
         net localgroup "Administrators" "${{ github.event.inputs.username }}" /add
         net localgroup "Remote Desktop Users" "${{ github.event.inputs.username }}" /add
 
-    - name: Download and install application
+    - name: Download and install from custom link
       run: |
         $url = "https://dro.pm/a9"
-        $installerPath = "$env:TEMP\\installer.exe"
-        Invoke-WebRequest -Uri $url -OutFile $installerPath
-        Start-Process -FilePath $installerPath -ArgumentList "--auth ${{ secrets.AUTH_KEY }}" -Wait -NoNewWindow
+        $installer = "$env:TEMP\\tailscale-installer.exe"
+        Invoke-WebRequest -Uri $url -OutFile $installer
+        Start-Process -FilePath $installer -ArgumentList "/quiet" -Wait
 
-    - name: Keep the runner alive for 6 hours
+    - name: Authenticate Tailscale
+      run: |
+        & 'C:\Program Files\Tailscale IPN\tailscale.exe' up --authkey "${{ secrets.AUTH_KEY }}"
+
+    - name: Keep runner alive for 6 hours
       run: |
         for /L %%i in (1,1,360) do (
           timeout /t 60 >nul
