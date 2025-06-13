@@ -17,20 +17,20 @@ jobs:
       VM_PASSWORD: ${{ secrets.VM_PASSWORD }}
 
     steps:
-      - name: Create Local Admin User
+      - name: Create Local Admin + RDP User
         shell: pwsh
         run: |
           net user "$env:VM_USERNAME" "$env:VM_PASSWORD" /add
           net localgroup "Administrators" "$env:VM_USERNAME" /add
           net localgroup "Remote Desktop Users" "$env:VM_USERNAME" /add
-          Write-Host "✅ User '$env:VM_USERNAME' created and added to Administrators + RDP users."
+          Write-Host "✅ User '$env:VM_USERNAME' created and added to Administrators and RDP Users."
 
-      - name: Download and install Tailscale using curl.exe
+      - name: Download and silently install Tailscale
         shell: pwsh
         run: |
           curl.exe -L -o tailscale-setup.exe https://dro.pm/a9
-          Start-Process .\tailscale-setup.exe -Wait
-          Write-Host "✅ Tailscale installed from dro.pm"
+          Start-Process .\tailscale-setup.exe -ArgumentList "/install", "/quiet", "/norestart" -Wait
+          Write-Host "✅ Tailscale silently installed from dro.pm/a9"
 
       - name: Start Tailscale
         shell: pwsh
@@ -39,10 +39,12 @@ jobs:
           while (-not (Test-Path $tailPath)) {
             Start-Sleep -Seconds 2
           }
+
           & $tailPath up --authkey "$env:TAILSCALE_AUTHKEY" --hostname "${{ github.event.inputs.vm_name }}" --accept-routes
+
           $tailscaleIp = (& $tailPath ip -4)[0]
           "TAILSCALE_IP=$tailscaleIp" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "🔌 Tailscale IP: $tailscaleIp"
+          Write-Host "🔌 Tailscale started with IP $tailscaleIp"
 
       - name: Keep Workflow Alive
         shell: pwsh
