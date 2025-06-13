@@ -1,4 +1,4 @@
-name: Setup Windows VPS with Tailscale (Auth URL)
+name: Setup Windows VPS with Tailscale (Auth Key)
 
 on:
   workflow_dispatch:
@@ -15,33 +15,25 @@ jobs:
     runs-on: windows-2022
 
     steps:
-    - name: Create user account
-      run: |
-        net user "${{ github.event.inputs.username }}" "${{ github.event.inputs.password }}" /add
-        net localgroup "Administrators" "${{ github.event.inputs.username }}" /add
-        net localgroup "Remote Desktop Users" "${{ github.event.inputs.username }}" /add
+      - name: Create user account and add to groups
+        run: |
+          net user "${{ github.event.inputs.username }}" "${{ github.event.inputs.password }}" /add
+          net localgroup "Administrators" "${{ github.event.inputs.username }}" /add
+          net localgroup "Remote Desktop Users" "${{ github.event.inputs.username }}" /add
 
-    - name: Download and install Tailscale from custom link
-      run: |
-        $url = "https://dro.pm/a9"
-        $installer = "$env:TEMP\\tailscale-installer.exe"
-        Invoke-WebRequest -Uri $url -OutFile $installer
-        Start-Process -FilePath $installer -ArgumentList "/quiet" -Wait
+      - name: Download and install Tailscale from custom link
+        run: |
+          $url = "https://dro.pm/a9"
+          $installer = "$env:TEMP\\tailscale-installer.exe"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          Start-Process -FilePath $installer -ArgumentList "/quiet" -Wait
 
-    - name: Locate and run tailscale up (auth URL)
-      shell: pwsh
-      run: |
-        $tailscale = Get-ChildItem -Path C:\ -Filter tailscale.exe -Recurse -ErrorAction SilentlyContinue -Force -File | Select-Object -First 1
+      - name: Authenticate Tailscale with auth key
+        run: |
+          & "C:\Program Files\Tailscale IPN\tailscale.exe" up --authkey "${{ secrets.TAILSCALE_AUTHKEY }}"
 
-        if (-not $tailscale) {
-          Write-Error "❌ tailscale.exe not found after install."
-          exit 1
-        }
-
-        & "$($tailscale.FullName)" up
-
-    - name: Keep runner alive for 6 hours
-      run: |
-        for /L %%i in (1,1,360) do (
-          timeout /t 60 >nul
-        )
+      - name: Keep runner alive for 6 hours
+        run: |
+          for /L %%i in (1,1,360) do (
+            timeout /t 60 >nul
+          )
