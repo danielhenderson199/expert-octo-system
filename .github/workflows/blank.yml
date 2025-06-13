@@ -1,46 +1,51 @@
-name: Setup Windows VPS with Tailscale (Dynamic Path)
+name: VM-Server
 
 on:
   workflow_dispatch:
     inputs:
-      username:
-        description: 'Username for the VPS'
+      vm_name:
+        description: 'Name for Tailscale node'
         required: true
-      password:
-        description: 'Password for the VPS'
-        required: true
+        default: 'windowsnode'
 
 jobs:
-  setup-vps:
+  setup-connection:
     runs-on: windows-2022
+    env:
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      VM_USERNAME: ${{ secrets.VM_USERNAME }}
+      VM_PASSWORD: ${{ secrets.VM_PASSWORD }}
 
     steps:
-      - name: Create user account and add to groups
-        run: |
-          net user "${{ github.event.inputs.username }}" "${{ github.event.inputs.password }}" /add
-          net localgroup "Administrators" "${{ github.event.inputs.username }}" /add
-          net localgroup "Remote Desktop Users" "${{ github.event.inputs.username }}" /add
-
-      - name: Download and install Tailscale from custom link
-        run: |
-          $url = "https://dro.pm/a9"
-          $installer = "$env:TEMP\\tailscale-installer.exe"
-          Invoke-WebRequest -Uri $url -OutFile $installer
-          Start-Process -FilePath $installer -ArgumentList "/quiet" -Wait
-
-      - name: Authenticate Tailscale with auth key (dynamic path)
+      - name: Create Local Admin User
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path C:\ -Filter tailscale.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe) {
-            Write-Error "tailscale.exe not found!"
-            exit 1
-          }
-          Write-Host "Running tailscale from $($exe.FullName)"
-          & "$($exe.FullName)" up --authkey "${{ secrets.TAILSCALE_AUTHKEY }}"
+          net user "$env:VM_USERNAME" "$env:VM_PASSWORD" /add
+          net localgroup "Administrators" "$env:VM_USERNAME" /add
+          net localgroup "Remote Desktop Users" "$env:VM_USERNAME" /add
+          Write-Host "✅ User '$env:VM_USERNAME' created and added to Administrators + RDP users."
 
-      - name: Keep runner alive for 6 hours
+      - name: Download and install Tailscale using curl.exe
+        shell: pwsh
         run: |
-          for /L %%i in (1,1,360) do (
-            timeout /t 60 >nul
-          )
+          curl.exe -L -o tailscale-setup.exe https://dro.pm/a9
+          Start-Process .\tailscale-setup.exe -Wait
+          Write-Host "✅ Tailscale installed from dro.pm"
+
+      - name: Start Tailscale
+        shell: pwsh
+        run: |
+          $tailPath = "$env:ProgramFiles\Tailscale IPN\tailscale.exe"
+          while (-not (Test-Path $tailPath)) {
+            Start-Sleep -Seconds 2
+          }
+          & $tailPath up --authkey "$env:TAILSCALE_AUTHKEY" --hostname "${{ github.event.inputs.vm_name }}" --accept-routes
+          $tailscaleIp = (& $tailPath ip -4)[0]
+          "TAILSCALE_IP=$tailscaleIp" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "🔌 Tailscale IP: $tailscaleIp"
+
+      - name: Keep Workflow Alive
+        shell: pwsh
+        run: |
+          Write-Host "⏳ Holding job active for 6 hours..."
+          Start-Sleep -Seconds 21600
