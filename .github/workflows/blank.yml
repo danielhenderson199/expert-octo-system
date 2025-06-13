@@ -1,53 +1,73 @@
-name: VM-Server
+name: vm
 
 on:
   workflow_dispatch:
     inputs:
-      vm_name:
-        description: 'Name for Tailscale node'
+      username:
+        description: "Enter the username for the remote user"
         required: true
-        default: 'windowsnode'
+        default: "runneradmin"
+      password:
+        description: "Enter the password for the remote user"
+        required: true
+        default: "@cyb3rking"
 
 jobs:
-  setup-connection:
-    runs-on: windows-2022
-    env:
-      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
-      VM_USERNAME: ${{ secrets.VM_USERNAME }}
-      VM_PASSWORD: ${{ secrets.VM_PASSWORD }}
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 9999
 
     steps:
-      - name: Create Local Admin + RDP User
-        shell: pwsh
-        run: |
-          net user "$env:VM_USERNAME" "$env:VM_PASSWORD" /add
-          net localgroup "Administrators" "$env:VM_USERNAME" /add
-          net localgroup "Remote Desktop Users" "$env:VM_USERNAME" /add
-          Write-Host "✅ User '$env:VM_USERNAME' created and added to Administrators and RDP Users."
+    # Step 1: Download & Install Tailscale
+    - name: Download Tailscale
+      run: Invoke-WebRequest https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe -OutFile tailscale-setup.exe
 
-      - name: Download and silently install Tailscale
-        shell: pwsh
-        run: |
-          curl.exe -L -o tailscale-setup.exe https://dro.pm/a9
-          Start-Process .\tailscale-setup.exe -ArgumentList "/install", "/quiet", "/norestart" -Wait
-          Write-Host "✅ Tailscale silently installed from dro.pm/a9"
+    - name: Install Tailscale
+      run: Start-Process -FilePath "tailscale-setup.exe" -ArgumentList "/quiet" -Wait
 
-      - name: Start Tailscale
-        shell: pwsh
-        run: |
-          $tailPath = "$env:ProgramFiles\Tailscale IPN\tailscale.exe"
-          while (-not (Test-Path $tailPath)) {
-            Start-Sleep -Seconds 2
-          }
+    - name: Start Tailscale and Authenticate
+      run: |
+        & "C:\Program Files\Tailscale\tailscale.exe" up
+        Write-Host "✅ Tailscale authentication started. Please visit the link to authenticate."
 
-          & $tailPath up --authkey "$env:TAILSCALE_AUTHKEY" --hostname "${{ github.event.inputs.vm_name }}" --accept-routes
+    # Step 2: Enable Remote Desktop
+    - name: Enable Remote Desktop
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+        Write-Host "✅ Remote Desktop Enabled."
 
-          $tailscaleIp = (& $tailPath ip -4)[0]
-          "TAILSCALE_IP=$tailscaleIp" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "🔌 Tailscale started with IP $tailscaleIp"
+    # Step 3: Create or Update User for RDP Access and Admin Rights
+    - name: Create or Update User for RDP Access
+      run: |
+        $username = "${{ github.event.inputs.username }}"
+        $password = "${{ github.event.inputs.password }}"
+        
+        $user = Get-LocalUser -Name $username -ErrorAction SilentlyContinue
+        
+        if ($null -eq $user) {
+            New-LocalUser -Name $username -Password (ConvertTo-SecureString -AsPlainText $password -Force) -FullName $username -Description "RDP User"
+            Write-Host "✅ User '$username' created successfully."
+        } else {
+            Set-LocalUser -Name $username -Password (ConvertTo-SecureString -AsPlainText $password -Force)
+            Write-Host "✅ Password updated for user '$username'."
+        }
 
-      - name: Keep Workflow Alive
-        shell: pwsh
-        run: |
-          Write-Host "⏳ Holding job active for 6 hours..."
-          Start-Sleep -Seconds 21600
+        Add-LocalGroupMember -Group "Remote Desktop Users" -Member $username
+        Write-Host "✅ User '$username' added to 'Remote Desktop Users'."
+
+        Add-LocalGroupMember -Group "Administrators" -Member $username
+        Write-Host "✅ User '$username' added to 'Administrators'."
+
+    # Step 4: Verify Tailscale Connection
+    - name: Verify Tailscale Connection
+      run: |
+        & "C:\Program Files\Tailscale\tailscale.exe" status
+        Write-Host "✅ Tailscale connection verified."
+
+    # Step 5: Keep Workflow Running
+    - name: Keep Workflow Running
+      run: |
+        Write-Host "🛠 Keeping the workflow running... Press Ctrl+C to stop."
+        while ($true) { Start-Sleep -Seconds 10 }
